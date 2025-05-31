@@ -1,14 +1,24 @@
 # 🕵️‍♂️ find-unused-javascript-files
 
-**Quickly scan a project folder to discover which JavaScript files are used in your HTML and which are collecting dust.**
+`find_unused_javascript_files.py` is a small Python utility that scans a project folder (recursively) and tells you which JavaScript files are never referenced:
+
+Not in any HTML `<script src="…">` tag
+
+Not in any JavaScript `import`, dynamic `import()` or CommonJS `require()` call
+
+By listing only the truly dead `.js` files, it helps you delete forgotten code and keep your repo lean
 
 ## ✨ Features
 
-* **Recursive scan** – Walks every sub-folder automatically.  
-* **Name-based matching** – Ignores path differences; compares only file names.  
-* **Clear terminal report** – Lists `USED` and `UNUSED` files separately.  
-* **Zero config** – Just run the script and point it at a directory.  
-* **Pure Python** – Only dependency is the well-known `beautifulsoup4` parser.
+| Feature                       | Description                                                                        |
+| ----------------------------- | ---------------------------------------------------------------------------------- |
+| 🔎 **Deep scan**              | Walks every sub-directory automatically.                                           |
+| 🖇️ **HTML → JS parsing**     | Finds filenames in `<script src="…">` tags via *BeautifulSoup*.                    |
+| 🔄 **JS → JS parsing**        | Detects static `import`, dynamic `import()` and `require()` statements with regex. |
+| 🧠 **Path-agnostic**          | Compares **only the filename**, so mismatched or relative paths don’t matter.      |
+| 🗒️ **Concise log**           | Prints *one* list – the `.js` files that appear nowhere.                           |
+| 🐍 **Zero non-standard deps** | Needs only `beautifulsoup4` (install once with `pip`).                             |
+
 
 ## 📦 Requirements
 
@@ -19,35 +29,39 @@ Install the dependency once:
 `pip install beautifulsoup4`
 
 ## 🚀 Installation
-Clone or download this repo, then make the script executable:
+1. Clone or download this repo, then make the script executable:
+
 ```
-git clone https://github.com/your-username/find_unused_javascript_files.git
+git clone https://github.com/tomcadene/find_unused_javascript_files.git
 cd find_unused_javascript_files
 chmod +x find_unused_javascript_files.py   # optional on Unix
 ```
 
+2. Install BeautifulSoup (only once)
+3. 
+```pip install beautifulsoup4```
+
 ## 🛠️ Usage
-`python find_unused_javascript_files.py [TARGET_FOLDER]`
 
-TARGET_FOLDER – Path to the directory you want to scan.
+`python find_unused_javascript_files.py /path/to/project`
 
-If omitted, the current working directory is used.
+If you omit the path, the current directory (.) is scanned.
 
-## Example
+## Example output
 
-`python find_unused_javascript_files.py ./my-web-app`
-
-Terminal output:
 ```
-INFO: Scanning project folder: /absolute/path/to/my-web-app
-INFO: Found 14 HTML files and 27 JS files.
-INFO: ----- SUMMARY -----
-INFO: JavaScript files referenced by HTML:
-INFO:   USED   /my-web-app/js/app.js
-INFO:   USED   /my-web-app/js/vendor/jquery.min.js
-INFO: JavaScript files NOT referenced by any HTML:
-INFO:   UNUSED /my-web-app/js/old-carousel.js
-INFO:   UNUSED /my-web-app/js/debug-tools.js
+INFO: Scanning directory: /Users/me/my-app
+INFO: Found 27 HTML files and 142 JS files.
+
+===== UNUSED JavaScript files =====
+UNUSED  /Users/me/my-app/scripts/old/polyfill-ie11.js
+UNUSED  /Users/me/my-app/components/legacy/modal-legacy.js
+UNUSED  /Users/me/my-app/tests/helpers/mock-fetch.js
 ```
+
+If everything is referenced you’ll see:
+
+`INFO: Great! Every JavaScript file is referenced somewhere.`
+
 
 
