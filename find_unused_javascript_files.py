@@ -2,176 +2,163 @@
 """
 find_unused_javascript_files.py
 --------------------------------
-Walks through a directory tree, finds every *.html* and *.js* file,
-identifies which JavaScript files are referenced by the HTML files,
-and logs which JavaScript files are **used** and which are **unused**.
+Scan a directory tree and list JavaScript files that are referenced
+NOWHERE – not in any HTML <script> tag and not in any JS import/require.
 
 Date: 2025-05-31
 """
 
 # ==== Standard-library imports ====
-import os                     # For directory walking and file-path handling
-import sys                    # For reading the folder name from command-line arguments
-import logging                # For nicely formatted console output
+import os                      # Path handling & directory walking
+import sys                     # Command-line argument reading
+import re                       # Simple pattern matching inside JS
+import logging                 # Clean terminal output
 
-# ==== Third-party import ====
-# BeautifulSoup is the safest, most popular way to parse HTML.
-from bs4 import BeautifulSoup # type: ignore
+# ==== Third-party import (HTML parsing) ====
+# Install once with:  pip install beautifulsoup4
+from bs4 import BeautifulSoup  # type: ignore
 
-# ------------------------------------------------------------------------
-# ------------------------ GLOBAL CONSTANTS ------------------------------
-# ------------------------------------------------------------------------
+# ------------------------------------------------------------------
+# ------------------------ GLOBAL CONSTANTS ------------------------
+# ------------------------------------------------------------------
 
-HTML_EXTENSION = ".html"   # File extension that marks HTML files
-JS_EXTENSION   = ".js"     # File extension that marks JavaScript files
+HTML_EXT   = ".html"   # Extension marking HTML files
+JS_EXT     = ".js"     # Extension marking JavaScript files
 
-LOG_FORMAT     = "%(levelname)s: %(message)s" # How log lines appear
-LOG_LEVEL      = logging.INFO                 # Default verbosity level
+LOG_LEVEL  = logging.INFO         # Default verbosity
+LOG_FMT    = "%(levelname)s: %(message)s"  # Log line style
 
-SCRIPT_TAG     = "script" # The tag we search for in HTML
-SRC_ATTR       = "src"    # The attribute inside <script> that carries the path
+HTML_TAG   = "script"  # Tag we look for in HTML
+HTML_ATTR  = "src"     # Attribute on <script> tag that holds the path
 
-# ------------------------------------------------------------------------
-# ---------------------  HELPER FUNCTIONS  -------------------------------
-# ------------------------------------------------------------------------
+# Regexes to catch most common import syntaxes inside JS -----------------
+IMPORT_PATTERNS = [
+    # ES-module static imports: import abc from './utils.js'
+    re.compile(r"""import\s+(?:[\w*\s{},]*\s+from\s+)?["']([^"']+)["']"""),
+    # Dynamic import(): const mod = await import('./chunk')
+    re.compile(r"""import\(\s*["']([^"']+)["']\s*\)"""),
+    # CommonJS require(): const lib = require('../lib/core.js')
+    re.compile(r"""require\(\s*["']([^"']+)["']\s*\)"""),
+]
 
-def collect_files_by_extension(root_folder: str, extension: str) -> list[str]:
+# ------------------------------------------------------------------
+# --------------------------- HELPERS ------------------------------
+# ------------------------------------------------------------------
+
+def collect_files(root: str, extension: str) -> list[str]:
     """
-    Recursively gather **absolute paths** of every file in *root_folder*
-    that ends with *extension*.
+    Recursively gather **absolute paths** of every file whose name ends with *extension*.
     """
-    files: list[str] = []                         # Accumulator list
-    for current_dir, _, filenames in os.walk(root_folder):
-        for name in filenames:
-            if name.lower().endswith(extension):  # Match desired extension
-                full_path = os.path.join(current_dir, name) # Create full path
-                files.append(os.path.abspath(full_path))    # Store absolute path
-    return files                                   # Return the complete list
+    files: list[str] = []
+    for current_dir, _, filenames in os.walk(root):
+        for fname in filenames:
+            if fname.lower().endswith(extension):
+                files.append(os.path.abspath(os.path.join(current_dir, fname)))
+    return files
 
 
-def extract_js_filenames_from_html(html_path: str) -> set[str]:
-    """
-    Parse one HTML file and return a **set** of all JavaScript file *names*
-    (just the basenames, not the directories) referenced in <script src="..."> tags.
-    """
-    used_names: set[str] = set()       # Container for JS basenames we discover
+# ------------- HTML → JS -----------------------------------------
 
-    # Read the whole HTML file safely
+def js_names_in_html(html_path: str) -> set[str]:
+    """
+    Return basenames of every .js file referenced by <script src="…"> tags
+    in a single HTML file.
+    """
+    names: set[str] = set()
+
     with open(html_path, "r", encoding="utf-8", errors="ignore") as fp:
-        html_content = fp.read()       # Load file contents as a string
+        soup = BeautifulSoup(fp.read(), "html.parser")
 
-    soup = BeautifulSoup(html_content, "html.parser")   # Parse HTML
-
-    # Loop through every <script> tag that has a 'src' attribute
-    for script in soup.find_all(SCRIPT_TAG, src=True):
-        src_value = script.get(SRC_ATTR, "")            # Fetch src attribute
-        js_name   = os.path.basename(src_value)         # Keep only the file name
-        if js_name.lower().endswith(JS_EXTENSION):      # Ensure it's a .js file
-            used_names.add(js_name)                     # Store unique name
-    return used_names                                   # Return the discovered set
+    for tag in soup.find_all(HTML_TAG, src=True):
+        basename = os.path.basename(tag.get(HTML_ATTR, ""))
+        if basename.lower().endswith(JS_EXT):
+            names.add(basename)
+    return names
 
 
-def gather_all_used_js_names(html_files: list[str]) -> set[str]:
+def all_js_names_from_html(html_files: list[str]) -> set[str]:
     """
-    Aggregate the union of all JavaScript file names referenced
-    by **every** HTML file in the project.
+    Union of every JS basename referenced by all HTML files.
     """
-    all_used: set[str] = set()             # Start with an empty union
-    for html_path in html_files:           # Iterate over each HTML file
-        used_in_file = extract_js_filenames_from_html(html_path)
-        all_used.update(used_in_file)      # Merge sets together
-    return all_used                        # Return the global set of uses
+    union: set[str] = set()
+    for html in html_files:
+        union.update(js_names_in_html(html))
+    return union
 
 
-def partition_js_files(js_files: list[str],
-                       used_names: set[str]) -> tuple[list[str], list[str]]:
+# ------------- JS → JS -------------------------------------------
+
+def js_names_in_js(js_path: str) -> set[str]:
     """
-    Split the list of JavaScript file **paths** into two buckets:
-    (1) paths whose *basename* appears in *used_names*  -> used_js
-    (2) all other paths                                -> unused_js
+    Scan one JS file, returning basenames of any imported / required JS.
     """
-    used_js:   list[str] = []  # Container for used JS file paths
-    unused_js: list[str] = []  # Container for unused JS file paths
+    names: set[str] = set()
 
-    for js_path in js_files:
-        js_name = os.path.basename(js_path)  # Extract the file name
-        # Compare names case-insensitively for robustness
-        if js_name in used_names:
-            used_js.append(js_path)          # Mark as used
-        else:
-            unused_js.append(js_path)        # Mark as unused
-    return used_js, unused_js                # Return the two buckets
+    with open(js_path, "r", encoding="utf-8", errors="ignore") as fp:
+        content = fp.read()
+
+    for pattern in IMPORT_PATTERNS:
+        for match in pattern.findall(content):
+            base = os.path.basename(match)
+
+            # If no extension supplied (e.g. `import './helper'`), assume .js
+            if not os.path.splitext(base)[1]:
+                base += JS_EXT
+
+            if base.lower().endswith(JS_EXT):
+                names.add(base)
+    return names
 
 
-def log_results(used_js: list[str], unused_js: list[str]) -> None:
+def all_js_names_from_js(js_files: list[str]) -> set[str]:
     """
-    Print clear, friendly messages to the terminal listing
-    which JavaScript files are used or unused.
+    Union of every JS basename imported or required by all JS files.
     """
-    logging.info("----- SUMMARY -----")                    # Section header
-
-    # --- Used files ---
-    if used_js:
-        logging.info("JavaScript files referenced by HTML:")
-        for path in used_js:
-            logging.info("  USED   %s", path)               # List each used file
-    else:
-        logging.info("No JavaScript files are referenced.") # Edge case
-
-    # --- Unused files ---
-    if unused_js:
-        logging.info("JavaScript files NOT referenced by any HTML:")
-        for path in unused_js:
-            logging.info("  UNUSED %s", path)               # List each unused file
-    else:
-        logging.info("All JavaScript files are referenced!")# Edge case
+    union: set[str] = set()
+    for js in js_files:
+        union.update(js_names_in_js(js))
+    return union
 
 
-# ------------------------------------------------------------------------
-# --------------------------  MAIN LOGIC  --------------------------------
-# ------------------------------------------------------------------------
+# ------------- MAIN WORK -----------------------------------------
 
 def main() -> None:
     """
-    Orchestrates the whole scan:
-    1. Reads the target folder from CLI (defaults to ".").
-    2. Collects all HTML and JS files.
-    3. Builds a set of JS names used in the HTML.
-    4. Separates JS files into used vs unused.
-    5. Logs the outcome.
+    * Get the folder to scan (default '.') from CLI.
+    * Collect all HTML and JS files.
+    * Figure out every JS basename referenced from HTML and JS.
+    * Log only those JS paths that are referenced **nowhere**.
     """
-    # -------- Argument handling --------
-    if len(sys.argv) > 1:                   # User provided a folder path
-        target_folder = sys.argv[1]         # Use it
+    target_dir = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else ".")
+    logging.basicConfig(level=LOG_LEVEL, format=LOG_FMT)
+    logging.info("Scanning directory: %s", target_dir)
+
+    html_files = collect_files(target_dir, HTML_EXT)
+    js_files   = collect_files(target_dir, JS_EXT)
+    logging.info("Found %d HTML files and %d JS files.", len(html_files), len(js_files))
+
+    # ----- Gather all referenced JS basenames -----
+    referenced_from_html = all_js_names_from_html(html_files)
+    referenced_from_js   = all_js_names_from_js(js_files)
+
+    referenced_anywhere  = referenced_from_html | referenced_from_js  # Union
+
+    # ----- Determine unused JS paths -----
+    unused_js_paths: list[str] = [
+        path for path in js_files
+        if os.path.basename(path) not in referenced_anywhere
+    ]
+
+    # ----- Log result -----
+    if unused_js_paths:
+        logging.info("")
+        logging.info("===== UNUSED JavaScript files =====")
+        for p in unused_js_paths:
+            logging.info("UNUSED  %s", p)
     else:
-        target_folder = "."                 # Default: current directory
+        logging.info("Great! Every JavaScript file is referenced somewhere.")
 
-    # Normalize the folder path to absolute path
-    target_folder = os.path.abspath(target_folder)
-
-    logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT) # Configure logging
-    logging.info("Scanning project folder: %s", target_folder)
-
-    # -------- Collect all HTML & JS files --------
-    html_files = collect_files_by_extension(target_folder, HTML_EXTENSION)
-    js_files   = collect_files_by_extension(target_folder, JS_EXTENSION)
-
-    logging.info("Found %d HTML files and %d JS files.",
-                 len(html_files), len(js_files))
-
-    # -------- Determine which JS files are referenced --------
-    used_js_names = gather_all_used_js_names(html_files)
-
-    # -------- Partition JS paths into used / unused --------
-    used_js_paths, unused_js_paths = partition_js_files(js_files, used_js_names)
-
-    # -------- Present results to the user --------
-    log_results(used_js_paths, unused_js_paths)
-
-
-# ------------------------------------------------------------------------
-# ----------------------------  ENTRY  -----------------------------------
-# ------------------------------------------------------------------------
+# ------------- ENTRY POINT ---------------------------------------
 
 if __name__ == "__main__":
-    main()  # Run the main workflow when script is executed directly
+    main()
