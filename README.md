@@ -8,19 +8,19 @@ Not in any JavaScript `import`, dynamic `import()` or CommonJS `require()` call
 
 By listing only the truly dead `.js` files, it helps you delete forgotten code and keep your repo lean
 
-## ✨ Features
+## Features
 
 | Feature                       | Description                                                                        |
 | ----------------------------- | ---------------------------------------------------------------------------------- |
-| 🔎 **Deep scan**              | Walks every sub-directory automatically.                                           |
-| 🖇️ **HTML → JS parsing**     | Finds filenames in `<script src="…">` tags via *BeautifulSoup*.                    |
-| 🔄 **JS → JS parsing**        | Detects static `import`, dynamic `import()` and `require()` statements with regex. |
-| 🧠 **Path-agnostic**          | Compares **only the filename**, so mismatched or relative paths don’t matter.      |
-| 🗒️ **Concise log**           | Prints *one* list – the `.js` files that appear nowhere.                           |
-| 🐍 **Zero non-standard deps** | Needs only `beautifulsoup4` (install once with `pip`).                             |
+| **Deep scan**              | Walks every sub-directory automatically.                                           |
+| **HTML → JS parsing**     | Finds filenames in `<script src="…">` tags via *BeautifulSoup*.                    |
+| **JS → JS parsing**        | Detects static `import`, dynamic `import()` and `require()` statements with regex. |
+| **Path-agnostic**          | Compares **only the filename**, so mismatched or relative paths don’t matter.      |
+| **Concise log**           | Prints *one* list – the `.js` files that appear nowhere.                           |
+| **Zero non-standard deps** | Needs only `beautifulsoup4` (install once with `pip`).                             |
 
 
-## 📦 Requirements
+## Requirements
 
 * Python ≥ 3.8  
 * `beautifulsoup4`  
@@ -28,7 +28,7 @@ By listing only the truly dead `.js` files, it helps you delete forgotten code a
 Install the dependency once:
 `pip install beautifulsoup4`
 
-## 🚀 Installation
+## Installation
 1. Clone or download this repo, then make the script executable:
 
 ```
@@ -41,7 +41,7 @@ chmod +x find_unused_javascript_files.py   # optional on Unix
 3. 
 ```pip install beautifulsoup4```
 
-## 🛠️ Usage
+## Usage
 
 `python find_unused_javascript_files.py /path/to/project`
 
