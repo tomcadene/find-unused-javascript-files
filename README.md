@@ -38,7 +38,7 @@ chmod +x find_unused_javascript_files.py   # optional on Unix
 ```
 
 2. Install BeautifulSoup (only once)
-3. 
+
 ```pip install beautifulsoup4```
 
 ## Usage
